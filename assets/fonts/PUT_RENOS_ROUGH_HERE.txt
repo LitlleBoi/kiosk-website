@@ -1,0 +1,7 @@
+Plaats hier het Renos-Rough font bestand:
+
+- Renos-Rough.ttf
+
+Bestandsnaam moet exact zo zijn, want `css/styles.css` verwijst naar:
+`../assets/fonts/Renos-Rough.ttf`
+
