@@ -59,74 +59,8 @@ const i18n = {
   },
 };
 
-const CATEGORIES = [
-  { id: "burgers", label: { nl: "Burgers", en: "Burgers" }, icon: ASSETS.iconSamosa },
-  { id: "drinks", label: { nl: "Drankjes", en: "Drinks" }, icon: ASSETS.iconCoffee },
-  { id: "snacks", label: { nl: "Snacks", en: "Snacks" }, icon: ASSETS.iconSamosa },
-  { id: "dessert", label: { nl: "Dessert", en: "Dessert" }, icon: ASSETS.iconCoffee },
-];
-
-function makeProduct({ id, categoryId, nameNl, nameEn, descNl, descEn, priceCents, image }) {
-  return {
-    id,
-    categoryId,
-    name: { nl: nameNl, en: nameEn },
-    desc: { nl: descNl, en: descEn },
-    priceCents,
-    image,
-  };
-}
-
-const PRODUCTS = [
-  ...Array.from({ length: 24 }, (_, i) =>
-    makeProduct({
-      id: `samosa-${i + 1}`,
-      categoryId: "burgers",
-      nameNl: "Samosas",
-      nameEn: "Samosas",
-      descNl: "Bladerdeeg hapje met groente en een heerlijke saus.",
-      descEn: "Crispy pastry snack with vegetables and a tasty sauce.",
-      priceCents: 350,
-      image: ASSETS.iconSamosa,
-    })
-  ),
-  ...Array.from({ length: 18 }, (_, i) =>
-    makeProduct({
-      id: `coffee-${i + 1}`,
-      categoryId: "drinks",
-      nameNl: "Koffie",
-      nameEn: "Coffee",
-      descNl: "Vers gezet, warm en lekker.",
-      descEn: "Freshly brewed, warm and tasty.",
-      priceCents: 250,
-      image: ASSETS.iconCoffee,
-    })
-  ),
-  ...Array.from({ length: 18 }, (_, i) =>
-    makeProduct({
-      id: `snack-${i + 1}`,
-      categoryId: "snacks",
-      nameNl: "Snack",
-      nameEn: "Snack",
-      descNl: "Lekker tussendoortje.",
-      descEn: "A tasty bite.",
-      priceCents: 300,
-      image: ASSETS.iconSamosa,
-    })
-  ),
-  ...Array.from({ length: 18 }, (_, i) =>
-    makeProduct({
-      id: `dessert-${i + 1}`,
-      categoryId: "dessert",
-      nameNl: "Dessert",
-      nameEn: "Dessert",
-      descNl: "Zoet en heerlijk.",
-      descEn: "Sweet and delicious.",
-      priceCents: 400,
-      image: ASSETS.hero,
-    })
-  ),
-];
+let CATEGORIES = [];
+let PRODUCTS = [];
 
 const STORAGE_KEY = "hh-kiosk-state-v1";
 
@@ -157,15 +91,113 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+async function fetchJson(url) {
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+function mapCategoryFromApi(apiCat) {
+  const name = apiCat.name || "";
+  const key = String(apiCat.category_id);
+
+  let icon = ASSETS.iconSamosa;
+  const lower = name.toLowerCase();
+  if (lower.includes("drink") || lower.includes("drank")) icon = ASSETS.iconCoffee;
+
+  return {
+    id: key,
+    label: { nl: name, en: name },
+    icon,
+  };
+}
+
+function mapProductFromApi(apiProd) {
+  const id = String(apiProd.product_id);
+  const categoryId = String(apiProd.category_id);
+  const name = apiProd.name || "";
+  const desc = apiProd.description || "";
+  const price = Number(apiProd.price ?? 0);
+  const priceCents = Math.round(price * 100);
+
+  let icon = ASSETS.iconSamosa;
+  const lower = name.toLowerCase();
+  if (lower.includes("drink") || lower.includes("juice") || lower.includes("coffee")) {
+    icon = ASSETS.iconCoffee;
+  }
+
+  return {
+    id,
+    categoryId,
+    name: { nl: name, en: name },
+    desc: { nl: desc, en: desc },
+    priceCents,
+    image: icon,
+  };
+}
+
+async function ensureDataLoaded() {
+  if (state.dataLoaded) return;
+  try {
+    const [catsApi, prodsApi] = await Promise.all([
+      fetchJson("./api/categories.php"),
+      fetchJson("./api/products.php"),
+    ]);
+
+    CATEGORIES = Array.isArray(catsApi) ? catsApi.map(mapCategoryFromApi) : [];
+    PRODUCTS = Array.isArray(prodsApi) ? prodsApi.map(mapProductFromApi) : [];
+
+    if (!CATEGORIES.length) {
+      CATEGORIES = [
+        { id: "1", label: { nl: "Burgers", en: "Burgers" }, icon: ASSETS.iconSamosa },
+      ];
+    }
+    if (!PRODUCTS.length) {
+      PRODUCTS = [
+        {
+          id: "1",
+          categoryId: CATEGORIES[0].id,
+          name: { nl: "Voorbeeld product", en: "Example product" },
+          desc: {
+            nl: "Fallback product omdat de API leeg is.",
+            en: "Fallback product because the API returned no data.",
+          },
+          priceCents: 350,
+          image: ASSETS.iconSamosa,
+        },
+      ];
+    }
+
+    // If current categoryId is not valid, default to first category
+    if (!state.categoryId || !CATEGORIES.some((c) => c.id === state.categoryId)) {
+      state.categoryId = CATEGORIES.length ? CATEGORIES[0].id : null;
+    }
+
+    state.dataLoaded = true;
+    saveState();
+
+    if (state.screen === "products" || state.screen === "cart") {
+      render();
+    }
+  } catch (e) {
+    console.error("Failed to load data from API", e);
+  }
+}
+
 const initial = loadState();
 const state = {
   lang: initial?.lang === "en" ? "en" : "nl",
   // Always start at the start page on reload
   screen: "start",
   mode: initial?.mode ?? null, // 'eatHere' | 'takeHome'
-  categoryId: initial?.categoryId ?? "burgers",
+  categoryId: initial?.categoryId ?? null,
   cart: Array.isArray(initial?.cart) ? initial.cart : [],
   lastOrderNo: typeof initial?.lastOrderNo === "number" ? initial.lastOrderNo : null,
+  dataLoaded: false,
 };
 
 const screenEl = document.getElementById("screen");
@@ -201,7 +233,7 @@ function setLang(lang) {
 
 function setMode(mode) {
   state.mode = mode;
-  setScreen("products");
+  ensureDataLoaded().then(() => setScreen("products"));
 }
 
 function setCategory(id) {
@@ -234,11 +266,42 @@ function removeFromCart(productId) {
   saveState();
 }
 
-function checkout() {
-  const base = Number(localStorage.getItem("hh-kiosk-order-no") ?? "18");
-  const next = base + 1;
-  localStorage.setItem("hh-kiosk-order-no", String(next));
-  state.lastOrderNo = next;
+async function checkout() {
+  const itemsPayload = state.cart.map((it) => ({
+    productId: it.productId,
+    qty: it.qty,
+  }));
+
+  let usedApi = false;
+  try {
+    const res = await fetch("./api/orders.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: itemsPayload,
+        mode: state.mode,
+        lang: state.lang,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.pickup_number === "number") {
+        state.lastOrderNo = data.pickup_number;
+        usedApi = true;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to send order to API", e);
+  }
+
+  if (!usedApi) {
+    const base = Number(localStorage.getItem("hh-kiosk-order-no") ?? "18");
+    const next = base + 1;
+    localStorage.setItem("hh-kiosk-order-no", String(next));
+    state.lastOrderNo = next;
+  }
+
   state.cart = [];
   setScreen("thanks");
 }
